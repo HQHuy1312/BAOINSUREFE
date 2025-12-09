@@ -1,0 +1,5 @@
+{
+  "name": "BAOAI Insight",
+  "description": "A frontend application for a project that collects and analyzes data for sellers, inspired by the BAOAI Insight dashboard.",
+  "requestFramePermissions": []
+}
