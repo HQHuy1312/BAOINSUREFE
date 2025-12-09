@@ -57,7 +57,7 @@ export const CONNECTOR_CATEGORIES: CategoryType[] = [
     title: 'Sales Channels',
     connectors: [
       { id: 'shopee', name: 'Shopee', description: 'E-commerce platform', icon: <ShopeeIcon className="w-10 h-10" />, implemented: false },
-      { id: 'tiktok-shop', name: 'TikTok Shop', description: 'E-commerce platform for TikTok', icon: <TikTokIcon className="w-10 h-10" />, implemented: false },
+      { id: 'tiktok-shop', name: 'TikTok Shop', description: 'E-commerce platform for TikTok', icon: <TikTokIcon className="w-10 h-10" />, implemented: true },
       { id: 'haravan', name: 'Haravan', description: 'Omni-channel sales solution', icon: <PlugIcon className="w-10 h-10 text-blue-500" />, implemented: false },
       { id: 'lazada', name: 'Lazada', description: 'E-commerce platform', icon: <LazadaIcon className="w-10 h-10" />, implemented: false },
       { id: 'omisell', name: 'Omisell', description: 'Multi-channel sales management', icon: <PlugIcon className="w-10 h-10 text-gray-500" />, implemented: false },
