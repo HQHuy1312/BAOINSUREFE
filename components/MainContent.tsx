@@ -6,7 +6,7 @@ import GoogleSheetModal from './GoogleSheetModal';
 import FacebookPagesModal from './FacebookPagesModal';
 import type { ApiResponse, ConnectorStatusResponseData, GoogleSheetInfo } from '../types';
 
-const API_BASE_URL = 'http://localhost:8001';
+const API_BASE_URL = 'http://localhost:8200';
 
 const MainContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState('All');
@@ -121,7 +121,7 @@ const MainContent: React.FC = () => {
     }
 
     // Explicitly using the full URL as requested
-    const response = await fetch('http://localhost:8001/api/v1/auth/facebook-pages/url', {
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/facebook-pages/url`, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
@@ -140,7 +140,59 @@ const MainContent: React.FC = () => {
     return result.data.url;
   };
 
+  const getTikTokShopAuthUrl = async (): Promise<string> => {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      throw new Error('Authentication token not found. Please log in again.');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/tiktok_shop/url`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    const result: ApiResponse<{ auth_url: string }> = await response.json();
+
+    if (!response.ok || result.code !== 0) {
+      throw new Error(result.message || 'Failed to retrieve TikTok Shop authentication URL.');
+    }
+
+    if (!result.data?.auth_url) {
+        throw new Error('Authentication URL not found in the API response.');
+    }
+
+    return result.data.auth_url;
+  };
+
   const handleConnect = async (connectorId: string) => {
+    if (connectorId === 'tiktok-shop') {
+      setLoadingConnectors(prev => ({ ...prev, [connectorId]: true }));
+      try {
+        const authUrl = await getTikTokShopAuthUrl();
+        // Calculate center position for the popup
+        const width = 800;
+        const height = 700;
+        const left = window.screen.width / 2 - width / 2;
+        const top = window.screen.height / 2 - height / 2;
+        
+        window.open(
+          authUrl, 
+          'TikTokShopAuth', 
+          `width=${width},height=${height},top=${top},left=${left},scrollbars=yes,resizable=yes`
+        );
+      } catch (error) {
+        if (error instanceof Error) {
+            alert(`Error: ${error.message}`);
+        } else {
+            alert('An unknown error occurred.');
+        }
+      } finally {
+        setLoadingConnectors(prev => ({ ...prev, [connectorId]: false }));
+      }
+      return;
+    }
+
     if (connectorId.startsWith('google-')) {
       if (connectorId === 'google-sheets') {
         if (connectorStatuses['google_sheets']) {
