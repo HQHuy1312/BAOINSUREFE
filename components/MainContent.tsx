@@ -4,7 +4,8 @@ import { CONNECTOR_CATEGORIES, TABS } from '../constants';
 import ConnectorSection from './ConnectorSection';
 import GoogleSheetModal from './GoogleSheetModal';
 import FacebookPagesModal from './FacebookPagesModal';
-import type { ApiResponse, ConnectorStatusResponseData, GoogleSheetInfo } from '../types';
+import ConnectorDetailsModal from './ConnectorDetailsModal';
+import type { ApiResponse, ConnectorStatusResponseData, GoogleSheetInfo, ConnectorConnection } from '../types';
 
 const API_BASE_URL = 'http://localhost:8200';
 
@@ -12,59 +13,71 @@ const MainContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState('All');
   const [showWelcome, setShowWelcome] = useState(true);
   
-  // Initialize with google_sheets connected by default
-  const [connectorStatuses, setConnectorStatuses] = useState<Record<string, boolean>>({ google_sheets: true });
+  // Store list of connections for each connector ID
+  const [connectedConnectors, setConnectedConnectors] = useState<Record<string, ConnectorConnection[]>>({});
+  
   const [isLoadingStatuses, setIsLoadingStatuses] = useState(true);
   const [isSheetModalOpen, setIsSheetModalOpen] = useState(false);
   const [isFacebookModalOpen, setIsFacebookModalOpen] = useState(false);
   const [loadingConnectors, setLoadingConnectors] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    const fetchConnectorStatuses = async () => {
-      setIsLoadingStatuses(true);
-      try {
-        const token = localStorage.getItem('authToken');
-        if (!token) {
-          setIsLoadingStatuses(false);
-          // Default to connected for Google Sheets even without auth if requested
-          setConnectorStatuses(prev => ({ ...prev, google_sheets: true }));
-          return;
-        }
+  // Details Modal State
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [selectedConnectorDetails, setSelectedConnectorDetails] = useState<{name: string, id: string, connections: ConnectorConnection[]} | null>(null);
 
-        const response = await fetch(`${API_BASE_URL}/api/v1/app/connectors/status`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
 
-        const result: ApiResponse<ConnectorStatusResponseData> = await response.json();
+  const getFrontendIdFromApiName = (apiName: string): string | null => {
+    // Logic to map API names (e.g. tiktok_shop_connection_123) to Frontend IDs (e.g. tiktok-shop)
+    if (apiName.startsWith('tiktok_shop')) return 'tiktok-shop';
+    if (apiName.startsWith('google_sheets')) return 'google-sheets';
+    if (apiName.startsWith('facebook_pages')) return 'facebook-pages';
+    // Add more mappings as needed
+    return null;
+  };
 
-        if (response.ok && result.code === 0 && result.data?.collectors) {
-          const statuses = result.data.collectors.reduce((acc, collector) => {
-            acc[collector.name] = collector.connected;
-            // Map snake_case to kebab-case for facebook-pages to ensure frontend consistency
-            if (collector.name === 'facebook_pages') {
-                acc['facebook-pages'] = collector.connected;
-            }
-            return acc;
-          }, {} as Record<string, boolean>);
-          
-          // Force Google Sheets to be connected as requested
-          statuses['google_sheets'] = true;
-          
-          setConnectorStatuses(statuses);
-        } else {
-          console.error('Failed to fetch connector statuses:', result.message);
-           // Fallback: ensure google_sheets is true
-           setConnectorStatuses(prev => ({ ...prev, google_sheets: true }));
-        }
-      } catch (error) {
-        console.error('Error fetching connector statuses:', error);
-        // Fallback: ensure google_sheets is true
-        setConnectorStatuses(prev => ({ ...prev, google_sheets: true }));
-      } finally {
+  const fetchConnectorStatuses = async () => {
+    setIsLoadingStatuses(true);
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
         setIsLoadingStatuses(false);
+        return;
       }
-    };
 
+      const response = await fetch(`${API_BASE_URL}/api/v1/app/connectors/status`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+
+      const result: ApiResponse<ConnectorStatusResponseData> = await response.json();
+
+      if (response.ok && result.code === 0 && result.data?.connectors) {
+        const newConnectedState: Record<string, ConnectorConnection[]> = {};
+
+        result.data.connectors.forEach(conn => {
+            const frontendId = getFrontendIdFromApiName(conn.name);
+            if (frontendId) {
+                if (!newConnectedState[frontendId]) {
+                    newConnectedState[frontendId] = [];
+                }
+                newConnectedState[frontendId].push(conn);
+            }
+        });
+        
+        // Preserve local optimistic updates if API doesn't return them yet (optional, but good for UX)
+        // For now, let's strictly trust the API.
+        
+        setConnectedConnectors(newConnectedState);
+      } else {
+        console.error('Failed to fetch connector statuses:', result.message);
+      }
+    } catch (error) {
+      console.error('Error fetching connector statuses:', error);
+    } finally {
+      setIsLoadingStatuses(false);
+    }
+  };
+
+  useEffect(() => {
     fetchConnectorStatuses();
   }, []);
 
@@ -74,16 +87,14 @@ const MainContent: React.FC = () => {
     const facebookAuthSuccess = urlParams.get('facebook-pages_auth_success');
 
     if (authSuccess === 'true') {
-      // Optimistically update the status and open the modal for a better UX.
-      setConnectorStatuses(prev => ({ ...prev, google_sheets: true }));
       setIsSheetModalOpen(true);
-
+      fetchConnectorStatuses(); // Refresh status
       const newUrl = `${window.location.pathname}`;
       window.history.replaceState({}, document.title, newUrl);
     }
 
     if (facebookAuthSuccess === 'true') {
-      setConnectorStatuses(prev => ({ ...prev, 'facebook-pages': true }));
+      fetchConnectorStatuses(); // Refresh status
       const newUrl = `${window.location.pathname}`;
       window.history.replaceState({}, document.title, newUrl);
     }
@@ -120,7 +131,6 @@ const MainContent: React.FC = () => {
       throw new Error('Authentication token not found. Please log in again.');
     }
 
-    // Explicitly using the full URL as requested
     const response = await fetch(`${API_BASE_URL}/api/v1/auth/facebook-pages/url`, {
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -165,12 +175,11 @@ const MainContent: React.FC = () => {
     return result.data.auth_url;
   };
 
-  const handleConnect = async (connectorId: string) => {
+  const executeAuthFlow = async (connectorId: string) => {
     if (connectorId === 'tiktok-shop') {
       setLoadingConnectors(prev => ({ ...prev, [connectorId]: true }));
       try {
         const authUrl = await getTikTokShopAuthUrl();
-        // Calculate center position for the popup
         const width = 800;
         const height = 700;
         const left = window.screen.width / 2 - width / 2;
@@ -194,65 +203,78 @@ const MainContent: React.FC = () => {
     }
 
     if (connectorId.startsWith('google-')) {
-      if (connectorId === 'google-sheets') {
-        if (connectorStatuses['google_sheets']) {
-          setIsSheetModalOpen(true);
-        } else {
-          setLoadingConnectors(prev => ({ ...prev, [connectorId]: true }));
-          try {
-            const authUrl = await getGoogleAuthUrl();
-            window.location.href = authUrl;
-          } catch (error) {
-            if (error instanceof Error) {
-                alert(`Error: ${error.message}`);
-            } else {
-                alert('An unknown error occurred.');
-            }
-            setLoadingConnectors(prev => ({ ...prev, [connectorId]: false }));
-          }
+        if (connectorId === 'google-sheets') {
+             // For Google Sheets, we might still want to open the modal first if configured,
+             // but here we are in the "Add New" flow.
+             setLoadingConnectors(prev => ({ ...prev, [connectorId]: true }));
+             try {
+                const authUrl = await getGoogleAuthUrl();
+                window.location.href = authUrl;
+             } catch (error) {
+                if (error instanceof Error) {
+                    alert(`Error: ${error.message}`);
+                } else {
+                    alert('An unknown error occurred.');
+                }
+                setLoadingConnectors(prev => ({ ...prev, [connectorId]: false }));
+             }
         }
-      } else {
-        alert(`Configuration for "${connectorId}" is not implemented yet.`);
-      }
-      return;
+        return;
     }
 
     if (connectorId.startsWith('facebook-')) {
-      const facebookStatusKey = 'facebook-pages';
-      const isConnected = connectorStatuses[facebookStatusKey];
-
-      if (isConnected) {
-        // CASE: Connected -> "Configure" Button -> Opens Modal (which calls /accounts)
         if (connectorId === 'facebook-pages') {
-          setIsFacebookModalOpen(true);
-        } else {
-          alert(`Configuration for "${connectorId}" is not implemented yet.`);
+            // If checking specifically for authentication vs configuration
+            setLoadingConnectors(prev => ({ ...prev, [connectorId]: true }));
+            try {
+                const authUrl = await getFacebookAuthUrl();
+                window.location.href = authUrl;
+            } catch (error) {
+                if (error instanceof Error) {
+                    alert(`Error: ${error.message}`);
+                } else {
+                    alert('An unknown error occurred.');
+                }
+                setLoadingConnectors(prev => ({ ...prev, [connectorId]: false }));
+            }
         }
-      } else {
-        // CASE: Not Connected -> "Connect your data" Button -> Calls /auth/url
-        setLoadingConnectors(prev => ({ ...prev, [connectorId]: true }));
-        
-        try {
-          const authUrl = await getFacebookAuthUrl();
-          window.location.href = authUrl;
-        } catch (error) {
-          if (error instanceof Error) {
-            alert(`Error: ${error.message}`);
-          } else {
-            alert('An unknown error occurred.');
-          }
-          setLoadingConnectors(prev => ({ ...prev, [connectorId]: false }));
-        }
-      }
-      return;
-    }
-
-    if(connectorId === 'shopify' && connectorStatuses['shopify']) {
-      alert(`Configuration for "${connectorId}" is not implemented yet.`);
-      return;
+        return;
     }
 
     alert(`Connection logic for "${connectorId}" is not implemented yet.`);
+  }
+
+  const handleConnect = async (connectorId: string) => {
+    const existingConnections = connectedConnectors[connectorId] || [];
+
+    // Special handling for legacy/complex modals like Google Sheets or FB Pages configuration
+    if (connectorId === 'google-sheets' && existingConnections.length > 0) {
+        setIsSheetModalOpen(true);
+        return;
+    }
+    
+    // For Facebook Pages, if connected, we usually open the specific page configuration modal
+    if (connectorId === 'facebook-pages' && existingConnections.length > 0) {
+        setIsFacebookModalOpen(true);
+        return;
+    }
+
+    if (existingConnections.length > 0) {
+        // Show list of connected shops
+        // Find the friendly name for the title
+        let category = CONNECTOR_CATEGORIES.find(c => c.connectors.some(conn => conn.id === connectorId));
+        let connector = category?.connectors.find(c => c.id === connectorId);
+        
+        setSelectedConnectorDetails({
+            name: connector?.name || connectorId,
+            id: connectorId,
+            connections: existingConnections
+        });
+        setIsDetailsModalOpen(true);
+    } else {
+        // Not connected yet, start auth flow
+        await executeAuthFlow(connectorId);
+    }
   };
 
   const handleSheetSubmit = async (sheetInput: string): Promise<GoogleSheetInfo[]> => {
@@ -261,7 +283,6 @@ const MainContent: React.FC = () => {
       throw new Error('Authentication token not found.');
     }
     
-    // Regex to extract sheet ID from a standard Google Sheets URL
     const regex = /\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/;
     const match = sheetInput.match(regex);
     const spreadsheetId = match ? match[1] : sheetInput;
@@ -274,7 +295,6 @@ const MainContent: React.FC = () => {
 
     const result: ApiResponse<GoogleSheetInfo[]> = await response.json();
     
-    // The API returns code 200 on success for this endpoint
     if (!response.ok || (result.code !== 0 && result.code !== 200)) {
       throw new Error(result.message || 'Failed to fetch data from Google Sheet.');
     }
@@ -361,19 +381,39 @@ const MainContent: React.FC = () => {
               category={category}
               onConnect={handleConnect}
               loadingConnectors={loadingConnectors}
-              statuses={connectorStatuses}
+              connectedConnectors={connectedConnectors}
             />
           ))}
         </div>
       </div>
+      
       <GoogleSheetModal
         isOpen={isSheetModalOpen}
         onClose={() => setIsSheetModalOpen(false)}
         onSubmit={handleSheetSubmit}
       />
+      
       <FacebookPagesModal
         isOpen={isFacebookModalOpen}
         onClose={() => setIsFacebookModalOpen(false)}
+      />
+
+      <ConnectorDetailsModal
+        isOpen={isDetailsModalOpen}
+        onClose={() => setIsDetailsModalOpen(false)}
+        connectorName={selectedConnectorDetails?.name || 'Connector'}
+        connections={selectedConnectorDetails?.connections || []}
+        onAddNew={() => {
+            if (selectedConnectorDetails) {
+                // Close modal and start auth flow
+                // We keep the modal open? Or close it?
+                // Usually good to close it or handle the popup logic while it stays open.
+                // Given logic, let's close modal then trigger auth.
+                // setIsDetailsModalOpen(false); 
+                // Actually, executeAuthFlow can run while modal is open (popup).
+                executeAuthFlow(selectedConnectorDetails.id);
+            }
+        }}
       />
     </>
   );

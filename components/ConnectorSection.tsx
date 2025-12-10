@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import type { CategoryType } from '../types';
+import type { CategoryType, ConnectorConnection } from '../types';
 import ConnectorCard from './ConnectorCard';
 import { PlusIcon } from './icons';
 
@@ -8,28 +8,24 @@ interface ConnectorSectionProps {
   category: CategoryType;
   onConnect: (connectorId: string) => void;
   loadingConnectors: Record<string, boolean>;
-  statuses: Record<string, boolean>;
+  connectedConnectors: Record<string, ConnectorConnection[]>;
 }
 
 const getStatusKeyForConnector = (connectorId: string): string => {
-  if (connectorId === 'google-sheets') {
-    return 'google_sheets';
-  }
-  if (connectorId.startsWith('facebook-')) {
-    return 'facebook-pages';
-  }
+  // This helper maps the FRONTEND ID to the KEY used in the connectedConnectors state
+  // This key usually matches the frontend ID if normalized, but let's be explicit
   return connectorId;
 };
 
-const ConnectorSection: React.FC<ConnectorSectionProps> = ({ category, onConnect, loadingConnectors, statuses }) => {
+const ConnectorSection: React.FC<ConnectorSectionProps> = ({ category, onConnect, loadingConnectors, connectedConnectors }) => {
   const [showConfiguredOnly, setShowConfiguredOnly] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
 
   const filteredConnectors = showConfiguredOnly
     ? category.connectors.filter(connector => {
         if (!connector) return false;
-        const statusKey = getStatusKeyForConnector(connector.id);
-        return statuses[statusKey] === true;
+        const connections = connectedConnectors[connector.id];
+        return connections && connections.length > 0;
       })
     : category.connectors.filter(Boolean); // Ensure no undefined items
 
@@ -82,15 +78,14 @@ const ConnectorSection: React.FC<ConnectorSectionProps> = ({ category, onConnect
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {connectorsToDisplay.map(connector => {
           if (!connector) return null; // Safety check
-          const statusKey = getStatusKeyForConnector(connector.id);
-          const isConnected = statuses[statusKey] || false;
+          const connections = connectedConnectors[connector.id] || [];
           return (
             <ConnectorCard 
               key={connector.id} 
               connector={connector}
               onClick={onConnect}
               isLoading={loadingConnectors[connector.id] || false}
-              isConnected={isConnected}
+              connectionCount={connections.length}
             />
           );
         })}

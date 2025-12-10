@@ -42,13 +42,20 @@ export interface ApiResponse<T = any> {
   data: T | null;
 }
 
+// New interface for individual connection details from API
+export interface ConnectorConnection {
+  name: string;
+  id: string;
+}
+
 export interface ConnectorStatus {
   name:string;
   connected: boolean;
 }
 
+// Updated response structure based on new API
 export interface ConnectorStatusResponseData {
-  collectors: ConnectorStatus[];
+  connectors: ConnectorConnection[];
 }
 
 export interface GoogleSheetInfo {
@@ -85,7 +92,6 @@ export interface FacebookPage {
   access_token?: string;
 }
 
-// FIX: Added FacebookMetric type to be used across the application.
 export type FacebookMetric = {
   name: string;
   period: string;
@@ -95,7 +101,6 @@ export type FacebookMetric = {
   id: string;
 };
 
-// FIX: Updated FacebookPageDetailsData to use the specific FacebookMetric type instead of a generic one.
 export interface FacebookPageDetailsData {
   [pageId: string]: FacebookMetric[];
 }
