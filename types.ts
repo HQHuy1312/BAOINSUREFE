@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 export interface NavItemType {
@@ -124,4 +125,20 @@ export interface FacebookPageWithDetails extends FacebookPage {
 
 export interface FacebookPagesByAccountData {
     [pageId: string]: FacebookPageWithDetails;
+}
+
+export interface ConnectorJob {
+  connection_id: string;
+  job_id: number;
+  job_type: string;
+  start_time: string;
+  status: string;
+  bytes_synced: number;
+  duration: string;
+  last_updated_at: string;
+  rows_synced: number;
+}
+
+export interface ConnectorJobsResponseData {
+  jobs: ConnectorJob[];
 }
