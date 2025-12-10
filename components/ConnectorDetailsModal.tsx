@@ -104,17 +104,8 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                     onClick={() => toggleExpand(conn.id)}
                   >
                     <div>
-                      <p className="font-semibold text-gray-800 flex items-center">
+                      <p className="font-semibold text-gray-800">
                         {conn.name}
-                        {isExpanded ? (
-                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-2 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                              </svg>
-                        ) : (
-                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-2 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                              </svg>
-                        )}
                       </p>
                       <p className="text-xs text-brand-gray-500 font-mono mt-1">ID: {conn.id}</p>
                     </div>
@@ -122,9 +113,15 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                         <span className="text-xs font-semibold bg-green-100 text-green-700 px-2 py-1 rounded-full">
                         Active
                         </span>
-                        <button className="text-xs text-brand-purple font-semibold hover:underline">
-                            {isExpanded ? 'Hide Jobs' : 'View Jobs'}
-                        </button>
+                        {isExpanded ? (
+                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                              </svg>
+                        ) : (
+                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                        )}
                     </div>
                   </div>
 
