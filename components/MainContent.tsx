@@ -7,7 +7,7 @@ import FacebookPagesModal from './FacebookPagesModal';
 import ConnectorDetailsModal from './ConnectorDetailsModal';
 import type { ApiResponse, ConnectorStatusResponseData, GoogleSheetInfo, ConnectorConnection } from '../types';
 
-const API_BASE_URL = 'http://localhost:8200';
+const API_BASE_URL = 'http://34.56.232.30:8200';
 
 const MainContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState('All');

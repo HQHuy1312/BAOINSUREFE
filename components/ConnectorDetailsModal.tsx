@@ -10,7 +10,7 @@ interface ConnectorDetailsModalProps {
   onAddNew: () => void;
 }
 
-const API_BASE_URL = 'http://localhost:8200';
+const API_BASE_URL = 'http://34.56.232.30:8200';
 
 const formatDuration = (pt: string) => {
   if (!pt) return '-';
