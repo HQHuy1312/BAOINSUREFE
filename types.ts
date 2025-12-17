@@ -43,21 +43,49 @@ export interface ApiResponse<T = any> {
   data: T | null;
 }
 
-// New interface for individual connection details from API
-export interface ConnectorConnection {
+// --- Connector API Types ---
+
+export interface ConnectorSourceConfiguration {
+  SOURCE_TYPE: string;
+  [key: string]: any;
+}
+
+export interface ConnectorSource {
+  source_id: string;
   name: string;
-  id: string;
+  source_type?: string; // Sometimes at root
+  configuration: ConnectorSourceConfiguration;
+  workspace_id: string;
+  created_at: number;
 }
 
-export interface ConnectorStatus {
-  name:string;
-  connected: boolean;
+export interface ConnectorConnectionData {
+  connection_id: string;
+  name: string; // Internal name, e.g. tiktok_shop_123
+  source_id: string;
+  destination_id: string;
+  status: string; // e.g., "active"
+  created_at: number;
 }
 
-// Updated response structure based on new API
 export interface ConnectorStatusResponseData {
-  connectors: ConnectorConnection[];
+  connectors: ConnectorConnectionData[];
 }
+
+export interface ConnectorSourcesResponseData {
+  sources: ConnectorSource[];
+}
+
+// UI Representation of a connection
+export interface ConnectorConnection {
+  id: string; // connection_id
+  name: string; // Friendly name from Source
+  status: string;
+  sourceType: string;
+  sourceId: string;
+}
+
+// --- End Connector API Types ---
 
 export interface GoogleSheetInfo {
   sheet_name: string;
@@ -67,6 +95,7 @@ export interface GoogleSheetInfo {
 export interface Spreadsheet {
   name: string;
   id: string;
+  connection_id?: string; // Added to link to connection
 }
 
 export interface ConfiguredSheetsData {
@@ -89,56 +118,12 @@ export interface FacebookPage {
   id: string;
   name: string;
   url?: string;
-  is_active?: boolean;
-  access_token?: string;
 }
 
-export type FacebookMetric = {
-  name: string;
-  period: string;
-  values: { value: any; end_time: string }[];
-  title: string | null;
-  description: string;
-  id: string;
-};
+export interface FacebookPageDetails {
+  [key: string]: any;
+}
 
 export interface FacebookPageDetailsData {
-  [pageId: string]: FacebookMetric[];
-}
-
-export interface FacebookAccount {
-  user_id: number;
-  provider_user_id: string;
-  access_token: string;
-  is_active: boolean;
-  source: string;
-}
-
-export type FacebookAccountsData = FacebookAccount[];
-
-export interface FacebookPageWithDetails extends FacebookPage {
-  page_id: string;
-  access_token: string;
-  is_active: boolean;
-  name: string;
-}
-
-export interface FacebookPagesByAccountData {
-    [pageId: string]: FacebookPageWithDetails;
-}
-
-export interface ConnectorJob {
-  connection_id: string;
-  job_id: number;
-  job_type: string;
-  start_time: string;
-  status: string;
-  bytes_synced: number;
-  duration: string;
-  last_updated_at: string;
-  rows_synced: number;
-}
-
-export interface ConnectorJobsResponseData {
-  jobs: ConnectorJob[];
+  [pageId: string]: FacebookPageDetails[];
 }

@@ -24,7 +24,7 @@ declare global {
   }
 }
 
-const API_BASE_URL = 'http://localhost:8001';
+const API_BASE_URL = 'http://localhost:8200';
 
 const GoogleDriveIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
@@ -61,12 +61,6 @@ const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({ isOpen, onClose, on
   const [activeSheetTab, setActiveSheetTab] = useState<string | null>(null);
 
   const [pickerApiLoaded, setPickerApiLoaded] = useState(false);
-
-  // Manual Entry State
-  const [manualName, setManualName] = useState('');
-  const [manualLink, setManualLink] = useState('');
-  const [manualError, setManualError] = useState<string | null>(null);
-  const [isManualSubmitting, setIsManualSubmitting] = useState(false);
 
   const fetchConfiguredSheets = useCallback(async () => {
     setIsLoadingSheets(true);
@@ -193,63 +187,6 @@ const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({ isOpen, onClose, on
         setPickerError(err instanceof Error ? err.message : 'An unknown error occurred.');
     }
   };
-
-  const handleManualAdd = async () => {
-    setManualError(null);
-    if (!manualName.trim()) {
-        setManualError("Please enter a name for this source.");
-        return;
-    }
-    if (!manualLink.trim()) {
-        setManualError("Please enter a Google Spreadsheet link.");
-        return;
-    }
-
-    // Extract Spreadsheet ID
-    const idRegex = /\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/;
-    const match = manualLink.match(idRegex);
-    const spreadsheetId = match ? match[1] : null;
-
-    if (!spreadsheetId) {
-        setManualError("Invalid Google Sheets URL. Could not extract Spreadsheet ID.");
-        return;
-    }
-
-    setIsManualSubmitting(true);
-    try {
-        const token = localStorage.getItem('authToken');
-        if (!token) throw new Error('Authentication token not found.');
-
-        const response = await fetch(`${API_BASE_URL}/api/v1/data/google-sheets/create-source`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                name: manualName,
-                spreadsheet_id: spreadsheetId
-            })
-        });
-
-        const result: ApiResponse = await response.json();
-
-        if (!response.ok || result.code !== 0) {
-            throw new Error(result.message || 'Failed to create data source.');
-        }
-
-        // Success
-        setManualName('');
-        setManualLink('');
-        alert('Fetch successful');
-        await fetchConfiguredSheets();
-
-    } catch (err) {
-        setManualError(err instanceof Error ? err.message : 'An unknown error occurred.');
-    } finally {
-        setIsManualSubmitting(false);
-    }
-  };
   
   const handleSheetSelect = async (sheet: Spreadsheet) => {
     setViewState('view');
@@ -308,10 +245,6 @@ const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({ isOpen, onClose, on
     setIsLoadingDetails(false);
     setDetailsError(null);
     setActiveSheetTab(null);
-    setManualName('');
-    setManualLink('');
-    setManualError(null);
-    setIsManualSubmitting(false);
     onClose();
   };
   
@@ -344,14 +277,15 @@ const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({ isOpen, onClose, on
   const renderAddView = () => {
     const isPickerReady = pickerApiLoaded;
     return (
-        <div className="flex flex-col h-full overflow-y-auto pr-2">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Add New Sheet</h3>
+        <>
+        <h3 className="text-lg font-semibold text-gray-800 mb-4">Add New Sheet</h3>
+        <div className="flex flex-col">
             <p className="text-sm text-brand-gray-500 mb-6">Select one or more Google Sheets from your Drive to start crawling data.</p>
             
             <button 
                 type="button" 
                 onClick={handleSelectFromDrive}
-                className="px-6 py-2.5 bg-white border border-brand-gray-300 hover:bg-brand-gray-100 text-brand-gray-600 font-semibold rounded-lg transition-colors text-sm flex items-center justify-center w-full disabled:opacity-50 disabled:cursor-wait"
+                className="px-6 py-2.5 bg-white border border-brand-gray-300 hover:bg-brand-gray-100 text-brand-gray-600 font-semibold rounded-lg transition-colors text-sm flex items-center justify-center min-w-[240px] disabled:opacity-50 disabled:cursor-wait"
                 disabled={!isPickerReady || isSubmitting}
             >
                 {isSubmitting ? (
@@ -402,49 +336,8 @@ const GoogleSheetModal: React.FC<GoogleSheetModalProps> = ({ isOpen, onClose, on
                 ))}
               </div>
             )}
-
-            <div className="mt-8 pt-6 border-t border-brand-gray-200">
-                <h4 className="text-md font-semibold text-gray-800 mb-4">Or connect manually</h4>
-                <div className="space-y-4">
-                    <div>
-                        <label htmlFor="sheetName" className="block text-sm font-medium text-brand-gray-600 mb-1">Name</label>
-                        <input 
-                            type="text" 
-                            id="sheetName"
-                            placeholder="My Sales Data"
-                            value={manualName}
-                            onChange={(e) => setManualName(e.target.value)}
-                            className="w-full px-3 py-2 border border-brand-gray-300 rounded-lg focus:ring-2 focus:ring-brand-purple focus:border-transparent outline-none text-sm"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="sheetLink" className="block text-sm font-medium text-brand-gray-600 mb-1">Spreadsheet Link</label>
-                        <input 
-                            type="text" 
-                            id="sheetLink"
-                            placeholder="https://docs.google.com/spreadsheets/d/..."
-                            value={manualLink}
-                            onChange={(e) => setManualLink(e.target.value)}
-                            className="w-full px-3 py-2 border border-brand-gray-300 rounded-lg focus:ring-2 focus:ring-brand-purple focus:border-transparent outline-none text-sm"
-                        />
-                    </div>
-                    {manualError && <p className="text-sm text-red-600">{manualError}</p>}
-                    <button 
-                        type="button"
-                        onClick={handleManualAdd}
-                        disabled={isManualSubmitting}
-                        className="w-full px-6 py-2.5 bg-brand-purple border border-transparent text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors text-sm flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                         {isManualSubmitting ? (
-                            <>
-                                <svg className="animate-spin -ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                Fetching...
-                            </>
-                        ) : 'Fetch'}
-                    </button>
-                </div>
-            </div>
         </div>
+        </>
     );
   };
 

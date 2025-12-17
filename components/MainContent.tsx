@@ -5,9 +5,9 @@ import ConnectorSection from './ConnectorSection';
 import GoogleSheetModal from './GoogleSheetModal';
 import FacebookPagesModal from './FacebookPagesModal';
 import ConnectorDetailsModal from './ConnectorDetailsModal';
-import type { ApiResponse, ConnectorStatusResponseData, GoogleSheetInfo, ConnectorConnection } from '../types';
+import type { ApiResponse, ConnectorStatusResponseData, ConnectorSourcesResponseData, GoogleSheetInfo, ConnectorConnection } from '../types';
 
-const API_BASE_URL = 'http://34.56.232.30:8200';
+const API_BASE_URL = 'http://localhost:8200';
 
 const MainContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState('All');
@@ -28,12 +28,25 @@ const MainContent: React.FC = () => {
 
   const getFrontendIdFromApiName = (apiName: string): string | null => {
     // Logic to map API names (e.g. tiktok_shop_connection_123) to Frontend IDs (e.g. tiktok-shop)
+    // In a real app, this might be better handled by a map or regex based on the `source_type` from the Source API.
     if (apiName.startsWith('tiktok_shop')) return 'tiktok-shop';
     if (apiName.startsWith('google_sheets')) return 'google-sheets';
     if (apiName.startsWith('facebook_pages')) return 'facebook-pages';
     // Add more mappings as needed
     return null;
   };
+
+  const getFrontendIdFromSourceType = (sourceType: string): string | null => {
+      switch (sourceType) {
+          case 'tiktok_shop': return 'tiktok-shop';
+          case 'facebook_pages': return 'facebook-pages';
+          case 'google_sheets': return 'google-sheets';
+          case 'shopee': return 'shopee';
+          case 'lazada': return 'lazada';
+          // Add other mappings
+          default: return null;
+      }
+  }
 
   const fetchConnectorStatuses = async () => {
     setIsLoadingStatuses(true);
@@ -44,31 +57,66 @@ const MainContent: React.FC = () => {
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/v1/app/connectors/status`, {
+      // Fetch Connections (Status)
+      const statusResponsePromise = fetch(`${API_BASE_URL}/api/v1/app/connectors/status`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
 
-      const result: ApiResponse<ConnectorStatusResponseData> = await response.json();
+      // Fetch Sources (Names/Types)
+      const sourcesResponsePromise = fetch(`${API_BASE_URL}/api/v1/app/connectors/sources`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
 
-      if (response.ok && result.code === 0 && result.data?.connectors) {
+      const [statusRes, sourcesRes] = await Promise.all([statusResponsePromise, sourcesResponsePromise]);
+
+      const statusResult: ApiResponse<ConnectorStatusResponseData> = await statusRes.json();
+      const sourcesResult: ApiResponse<ConnectorSourcesResponseData> = await sourcesRes.json();
+
+      if (statusRes.ok && statusResult.code === 0 && sourcesRes.ok && sourcesResult.code === 0) {
+        const connectors = statusResult.data?.connectors || [];
+        const sources = sourcesResult.data?.sources || [];
+
         const newConnectedState: Record<string, ConnectorConnection[]> = {};
 
-        result.data.connectors.forEach(conn => {
-            const frontendId = getFrontendIdFromApiName(conn.name);
+        // Map connections to sources to get friendly names
+        connectors.forEach(conn => {
+            const source = sources.find(s => s.source_id === conn.source_id);
+            
+            // Determine frontend ID. 
+            // 1. Try to use source_type from Source API
+            // 2. Fallback to parsing connection name
+            let frontendId: string | null = null;
+            let friendlyName = conn.name;
+            let sourceType = 'unknown';
+
+            if (source) {
+                friendlyName = source.name;
+                sourceType = source.configuration?.SOURCE_TYPE || source.source_type || 'unknown';
+                frontendId = getFrontendIdFromSourceType(sourceType);
+            } 
+            
+            if (!frontendId) {
+                frontendId = getFrontendIdFromApiName(conn.name);
+            }
+
             if (frontendId) {
                 if (!newConnectedState[frontendId]) {
                     newConnectedState[frontendId] = [];
                 }
-                newConnectedState[frontendId].push(conn);
+
+                newConnectedState[frontendId].push({
+                    id: conn.connection_id,
+                    name: friendlyName,
+                    status: conn.status,
+                    sourceId: conn.source_id,
+                    sourceType: sourceType
+                });
             }
         });
         
-        // Preserve local optimistic updates if API doesn't return them yet (optional, but good for UX)
-        // For now, let's strictly trust the API.
-        
         setConnectedConnectors(newConnectedState);
       } else {
-        console.error('Failed to fetch connector statuses:', result.message);
+        console.error('Failed to fetch connector data.');
       }
     } catch (error) {
       console.error('Error fetching connector statuses:', error);
@@ -84,7 +132,7 @@ const MainContent: React.FC = () => {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const authSuccess = urlParams.get('google_auth_success');
-    const facebookAuthSuccess = urlParams.get('facebook-pages_auth_success');
+    const facebookAuthSuccess = urlParams.get('facebook-pages_auth_success'); // Assumed query param
 
     if (authSuccess === 'true') {
       setIsSheetModalOpen(true);
@@ -180,6 +228,7 @@ const MainContent: React.FC = () => {
       setLoadingConnectors(prev => ({ ...prev, [connectorId]: true }));
       try {
         const authUrl = await getTikTokShopAuthUrl();
+        // Open popup or redirect
         const width = 800;
         const height = 700;
         const left = window.screen.width / 2 - width / 2;
@@ -190,6 +239,7 @@ const MainContent: React.FC = () => {
           'TikTokShopAuth', 
           `width=${width},height=${height},top=${top},left=${left},scrollbars=yes,resizable=yes`
         );
+        // Polling or simple message listener could be added here to refresh on close
       } catch (error) {
         if (error instanceof Error) {
             alert(`Error: ${error.message}`);
@@ -320,7 +370,7 @@ const MainContent: React.FC = () => {
           </div>
           <div className="flex items-center space-x-4">
             <div className="relative">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 absolute left-3 top-1/2 -translate-x-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <input

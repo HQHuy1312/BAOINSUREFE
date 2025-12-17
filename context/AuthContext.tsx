@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { LoginCredentials, RegisterCredentials, ApiResponse } from '../types';
 
@@ -11,7 +10,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const API_BASE_URL = 'http://34.56.232.30:8200';
+const API_BASE_URL = 'http://localhost:8200';
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('authToken'));
@@ -27,16 +26,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       body: JSON.stringify(credentials),
     });
 
-    // Updated type definition to match new flat response structure
-    const data: ApiResponse<{ access_token: string; token_type: string }> = await response.json();
+    const data: ApiResponse<{ token: { access_token: string; token_type: string } }> = await response.json();
 
     if (!response.ok || data.code !== 0) {
       const errorMessage = data.message || 'Login failed. Please check your credentials.';
       throw new Error(errorMessage);
     }
     
-    // Updated to access access_token directly from data
-    const authToken = data.data?.access_token;
+    const authToken = data.data?.token?.access_token;
 
     if (!authToken) {
       throw new Error('Login successful, but no authentication token was provided in the response.');

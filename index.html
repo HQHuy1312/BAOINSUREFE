@@ -5,44 +5,27 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BAOAI Insight</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google API Scripts -->
+    <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+    <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
     <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            colors: {
-              'brand-purple': '#7C3AED',
-              'brand-purple-light': '#F5F3FF',
-              'brand-gray': {
-                100: '#F7F8FA',
-                200: '#EFF1F6',
-                300: '#E2E8F0',
-                400: '#CBD5E1',
-                500: '#64748B',
-                600: '#475569'
-              },
-            },
-          },
-        },
-      }
+      // These functions are defined here to avoid errors on page load.
+      // The actual implementation is provided by the GoogleSheetModal component when it's mounted.
+      function gapiLoaded() {}
+      function gisLoaded() {}
     </script>
   <script type="importmap">
 {
   "imports": {
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^6.25.1"
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.10.1",
+    "vite": "https://esm.sh/vite@^7.3.0",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
   }
 }
-</script>
-<script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
-<script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
-<script>
-  // These functions are defined here to avoid errors on page load.
-  // The actual implementation is provided by the GoogleSheetModal component when it's mounted.
-  function gapiLoaded() {}
-  function gisLoaded() {}
 </script>
 </head>
   <body class="bg-brand-gray-100">

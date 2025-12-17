@@ -6,17 +6,12 @@ interface ConnectorCardProps {
   connector: ConnectorType;
   onClick: (connectorId: string) => void;
   isLoading: boolean;
-  connectionCount: number;
+  connectionsCount: number;
 }
 
-const ConnectorCard: React.FC<ConnectorCardProps> = ({ connector, onClick, isLoading, connectionCount }) => {
-  // Safety check to prevent crashing if connector data is missing
-  if (!connector) {
-    return null;
-  }
-
+const ConnectorCard: React.FC<ConnectorCardProps> = ({ connector, onClick, isLoading, connectionsCount }) => {
   const isImplemented = connector.implemented !== false; // Default to true if undefined
-  const isConnected = connectionCount > 0;
+  const isConnected = connectionsCount > 0;
 
   const buttonBaseClasses = "w-full mt-6 font-semibold py-2.5 px-4 rounded-lg text-sm transition-colors flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed";
   
@@ -37,7 +32,7 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({ connector, onClick, isLoa
           {isImplemented && isConnected ? (
             <span className="flex items-center text-xs font-semibold bg-green-100 text-green-700 px-2.5 py-1 rounded-full">
               <span className="w-2 h-2 mr-1.5 bg-green-500 rounded-full"></span>
-              Connected ({connectionCount})
+              {connectionsCount} Connected
             </span>
           ) : connector.addon && (
             <span className="text-xs font-semibold bg-blue-100 text-blue-600 px-2.5 py-1 rounded-full">
@@ -61,7 +56,7 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({ connector, onClick, isLoa
             </svg>
             Connecting...
           </>
-        ) : isImplemented ? (isConnected ? 'Manage Connections' : 'Connect your data') : 'Coming Soon'}
+        ) : isImplemented ? (isConnected ? 'Manage' : 'Connect your data') : 'Coming Soon'}
       </button>
     </div>
   );
