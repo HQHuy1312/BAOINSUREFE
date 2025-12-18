@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import type { ApiResponse, FacebookPage, FacebookPageDetailsData } from '../types';
-import { PersonasIcon, UserPlusIcon, EngagementIcon, LiveIcon, InformationCircleIcon, RetentionIcon, CreativeStudioIcon } from './icons';
+import type { ApiResponse } from '../types';
 
 interface FacebookPagesModalProps {
   isOpen: boolean;
@@ -9,300 +8,334 @@ interface FacebookPagesModalProps {
 
 const API_BASE_URL = 'http://localhost:8200';
 
-type FacebookMetric = {
-  name: string;
-  period: string;
-  values: { value: any; end_time: string }[];
-  title: string | null;
-  description: string;
-  id: string;
-};
+interface FBPageInfo {
+  page_id: string;
+  page_name: string;
+  page_access_token: string;
+  has_airbyte_source: boolean;
+  airbyte_source_id: string | null;
+  airbyte_source_config: any;
+}
 
-const StatCard: React.FC<{ title: string; value: string; icon: React.ReactNode; description: string }> = ({ title, value, icon, description }) => (
-  <div className="bg-white p-4 rounded-lg border border-brand-gray-200 shadow-sm flex flex-col justify-between">
-    <div>
-      <div className="flex justify-between items-start text-brand-gray-500">
-        <div className="w-8 h-8 rounded-full bg-brand-purple-light flex items-center justify-center text-brand-purple">
-          {icon}
-        </div>
-        <div className="relative group">
-          <InformationCircleIcon className="w-5 h-5 cursor-pointer" />
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2 bg-gray-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-            {description}
-          </div>
-        </div>
-      </div>
-      <p className="text-2xl font-bold text-gray-800 mt-4">{value}</p>
-    </div>
-    <p className="text-sm font-medium text-brand-gray-600 mt-1">{title}</p>
-  </div>
-);
+interface FBAccountProvider {
+  provider_id: string;
+  provider_name: string;
+  provider_email: string;
+  user_id: number;
+  pages: Record<string, FBPageInfo>;
+}
+
+const truncate = (str: string, n: number) => (str && str.length > n ? str.slice(0, n - 1) + '...' : str);
 
 const FacebookPagesModal: React.FC<FacebookPagesModalProps> = ({ isOpen, onClose }) => {
-  const [view, setView] = useState<'selection' | 'details'>('selection');
-  const [pages, setPages] = useState<FacebookPage[]>([]);
-  const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set());
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<'idle' | 'loading' | 'empty' | 'success' | 'error'>('idle');
+  const [accounts, setAccounts] = useState<FBAccountProvider[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
-  const [pageDetails, setPageDetails] = useState<FacebookPageDetailsData | null>(null);
-  const [configuredPages, setConfiguredPages] = useState<FacebookPage[]>([]);
-  const [activePageId, setActivePageId] = useState<string | null>(null);
-
-  const resetState = useCallback(() => {
-    setView('selection');
-    setPages([]);
-    setSelectedPages(new Set());
-    setIsLoading(false);
-    setIsSaving(false);
-    setError(null);
-    setPageDetails(null);
-    setConfiguredPages([]);
-    setActivePageId(null);
-  }, []);
-
-  const fetchPages = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  const fetchAllAccountsAndPages = useCallback(async () => {
+    setStatus('loading');
+    setErrorMessage(null);
     try {
       const token = localStorage.getItem('authToken');
       if (!token) throw new Error('Authentication token not found.');
 
-      const response = await fetch(`${API_BASE_URL}/api/v1/data/facebook/pages`, {
-        headers: { Authorization: `Bearer ${token}` },
+      // Gọi API lấy tất cả accounts và trạng thái Airbyte
+      const response = await fetch(`${API_BASE_URL}/api/v1/data/facebook-pages/all-accounts`, {
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
       });
+      const result = await response.json();
       
-      const result: ApiResponse<FacebookPage[]> = await response.json();
-      
-      if (!response.ok || (result.code !== 0 && result.code !== 200)) {
-         throw new Error(result.message || 'Failed to fetch Facebook pages.');
+      if (result.code === 200 || result.code === 0) {
+        if (!result.data || result.data.length === 0) {
+          setStatus('empty');
+        } else {
+          setAccounts(result.data);
+          setStatus('success');
+        }
+      } else {
+        throw new Error(result.message || 'Failed to fetch Facebook accounts');
       }
-      
-      setPages(result.data || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unknown error occurred.');
-    } finally {
-      setIsLoading(false);
+    } catch (err: any) {
+      setErrorMessage(err.message);
+      setStatus('error');
     }
   }, []);
 
   useEffect(() => {
     if (isOpen) {
-      fetchPages();
+      fetchAllAccountsAndPages();
     } else {
-      resetState();
+      setStatus('idle');
+      setAccounts([]);
+      setErrorMessage(null);
     }
-  }, [isOpen, fetchPages, resetState]);
+  }, [isOpen, fetchAllAccountsAndPages]);
 
-  const handlePageSelect = (pageId: string) => {
-    setSelectedPages(prevSelected => {
-      const newSelected = new Set(prevSelected);
-      if (newSelected.has(pageId)) {
-        newSelected.delete(pageId);
-      } else {
-        newSelected.add(pageId);
-      }
-      return newSelected;
-    });
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    setError(null);
+  const handleVerify = async () => {
     try {
       const token = localStorage.getItem('authToken');
-      if (!token) throw new Error('Authentication token not found.');
-
-      const pageIds = Array.from(selectedPages);
-      if (pageIds.length === 0) {
-        setIsSaving(false);
-        return;
-      }
-
-      // The API is assumed to return a single object where keys are page IDs
-      // and values are arrays of metric data.
-      const response = await fetch(`${API_BASE_URL}/api/v1/data/facebook/pages/selected?page_ids=${pageIds.join(',')}`, {
-        method: 'GET',
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/facebook-pages/url`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
-
-      const result: ApiResponse<FacebookPageDetailsData> = await response.json();
-      
-      if (!response.ok || (result.code !== 0 && result.code !== 200)) {
-        throw new Error(result.message || 'Failed to fetch page details.');
-      }
-
-      if (result.data) {
-        // Handle cases where the API returns a single array for a single ID
-        if (Array.isArray(result.data)) {
-            const singlePageId = pageIds[0];
-            if (singlePageId) {
-                setPageDetails({ [singlePageId]: result.data as any });
-            }
-        } else {
-            setPageDetails(result.data);
-        }
-
-        const savedPages = pages.filter(p => selectedPages.has(p.id));
-        setConfiguredPages(savedPages);
-        if (savedPages.length > 0) {
-          setActivePageId(savedPages[0].id);
-        }
-        setView('details');
+      const result: ApiResponse<{ auth_url: string }> = await response.json();
+      if (result.code === 0 && result.data?.auth_url) {
+        window.location.href = result.data.auth_url;
       } else {
-        throw new Error('No data returned after saving configuration.');
+        alert(result.message || 'Failed to get verification URL');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unknown error occurred while saving.');
-    } finally {
-      setIsSaving(false);
+      alert('Error initiating verification');
     }
   };
 
-  const renderSelectionView = () => (
-    <div className="flex-grow overflow-y-auto pr-2">
-      {isLoading ? (
-        <div className="flex justify-center items-center h-full">
-          <svg className="animate-spin h-8 w-8 text-brand-purple" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-        </div>
-      ) : error ? (
-        <div className="text-sm text-red-600 bg-red-50 p-3 rounded-md">{error}</div>
-      ) : pages.length > 0 ? (
-        <div className="space-y-3">
-          <p className="text-sm text-brand-gray-500">Select the pages you want to track data for.</p>
-          {pages.map(page => {
-            const isSelected = selectedPages.has(page.id);
-            return (
-              <div key={page.id} onClick={() => handlePageSelect(page.id)} className={`w-full flex items-center justify-between p-4 rounded-lg border text-left transition-all duration-200 cursor-pointer ${isSelected ? 'bg-brand-purple-light border-brand-purple shadow-md' : 'bg-white hover:bg-brand-gray-100 border-brand-gray-200'}`}>
-                <div className="flex items-center min-w-0">
-                  <div className={`w-5 h-5 rounded-full flex items-center justify-center mr-4 border-2 flex-shrink-0 ${isSelected ? 'bg-brand-purple border-brand-purple' : 'border-brand-gray-300'}`}>
-                    {isSelected && <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-white" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-medium text-gray-800 truncate" title={page.name}>{page.name}</p>
-                    <p className="text-xs text-brand-gray-500">ID: {page.id}</p>
-                  </div>
-                </div>
-                {page.url && (
-                    <a 
-                      href={page.url} 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
-                      onClick={(e) => e.stopPropagation()}
-                      className="ml-4 text-sm font-medium text-brand-purple hover:underline flex-shrink-0 flex items-center space-x-1"
-                      aria-label={`Open ${page.name} in a new tab`}
-                    >
-                      <span>Open</span>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                      </svg>
-                    </a>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="flex justify-center items-center h-full text-center"><p className="text-sm text-brand-gray-500">No Facebook pages found for your account.</p></div>
-      )}
-    </div>
-  );
-  
-  const renderDetailsView = () => {
-    const activePage = configuredPages.find(p => p.id === activePageId);
-    
-    const getMetricValue = (pageId: string, name: string, period: string) => {
-        if (!pageDetails || !pageDetails[pageId]) return { value: 'N/A', description: 'Data not available for this page.' };
-        
-        const pageData = pageDetails[pageId] as FacebookMetric[];
-        const metric = pageData.find(m => m.name === name && m.period === period);
-        if (!metric || !metric.values || metric.values.length === 0) return { value: 'N/A', description: `Metric "${name}" with period "${period}" not found.` };
-        
-        const latestEntry = metric.values[metric.values.length - 1];
-        const description = metric.description || 'No description provided.';
-
-        if (typeof latestEntry.value === 'number') {
-            return { value: latestEntry.value.toLocaleString(), description };
-        }
-        if (typeof latestEntry.value === 'object' && latestEntry.value !== null) {
-            const total = Object.values(latestEntry.value).reduce((sum: number, count: unknown) => sum + (typeof count === 'number' ? count : 0), 0);
-            return { value: total.toLocaleString(), description };
-        }
-        return { value: 'N/A', description };
-    };
-
-    const { value: totalFans, description: totalFansDesc } = activePageId ? getMetricValue(activePageId, 'page_fans', 'day') : { value: 'N/A', description: '' };
-    const { value: newLikes, description: newLikesDesc } = activePageId ? getMetricValue(activePageId, 'page_fan_adds_unique', 'day') : { value: 'N/A', description: '' };
-    const { value: postReactions, description: postReactionsDesc } = activePageId ? getMetricValue(activePageId, 'page_actions_post_reactions_total', 'days_28') : { value: 'N/A', description: '' };
-    const { value: videoViews, description: videoViewsDesc } = activePageId ? getMetricValue(activePageId, 'page_video_views_unique', 'days_28') : { value: 'N/A', description: '' };
-    const { value: weeklyVideoViews, description: weeklyVideoViewsDesc } = activePageId ? getMetricValue(activePageId, 'page_video_views_unique', 'week') : { value: 'N/A', description: '' };
-    const { value: thirtySecondVideoViews, description: thirtySecondVideoViewsDesc } = activePageId ? getMetricValue(activePageId, 'page_video_complete_views_30s_unique', 'days_28') : { value: 'N/A', description: '' };
-
-
-    return (
-      <div className="flex-grow flex min-h-0">
-        <div className="w-1/3 pr-6 border-r border-brand-gray-200">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Configured Pages</h3>
-          <div className="space-y-2 bg-brand-gray-100 p-2 rounded-lg border border-brand-gray-200 h-[calc(100%-40px)] overflow-y-auto">
-            {configuredPages.map((page) => (
-              <button key={page.id} onClick={() => setActivePageId(page.id)} className={`w-full flex items-center p-2.5 rounded-md shadow-sm transition-colors text-left ${activePageId === page.id ? 'bg-brand-purple-light' : 'bg-white hover:bg-brand-gray-200'}`}>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-500 mr-3 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
-                <span className="text-sm text-brand-gray-600 font-medium truncate" title={page.name}>{page.name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="w-2/3 pl-6 flex flex-col overflow-y-auto">
-          {activePage ? (
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800 mb-4 truncate" title={activePage.name}>
-                  Showing data for: <span className="text-brand-purple">{activePage.name}</span>
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <StatCard title="Total Page Fans" value={totalFans} description={totalFansDesc} icon={<PersonasIcon className="w-5 h-5"/>} />
-                  <StatCard title="Daily New Fans" value={newLikes} description={newLikesDesc} icon={<UserPlusIcon className="w-5 h-5"/>} />
-                  <StatCard title="Post Reactions (28 Days)" value={postReactions} description={postReactionsDesc} icon={<EngagementIcon className="w-5 h-5"/>} />
-                  <StatCard title="Video Views (28 Days)" value={videoViews} description={videoViewsDesc} icon={<LiveIcon className="w-5 h-5"/>} />
-                  <StatCard title="Weekly Video Views" value={weeklyVideoViews} description={weeklyVideoViewsDesc} icon={<RetentionIcon className="w-5 h-5"/>} />
-                  <StatCard title="30s Video Views (28 Days)" value={thirtySecondVideoViews} description={thirtySecondVideoViewsDesc} icon={<CreativeStudioIcon className="w-5 h-5"/>} />
-              </div>
-            </div>
-          ) : <p className="mt-4 text-sm text-brand-gray-500">Select a page to view its data.</p>}
-        </div>
-      </div>
-    );
+  const handleConnectPage = async (page: FBPageInfo) => {
+    setProcessingId(page.page_id);
+    try {
+      const token = localStorage.getItem('authToken');
+      
+      // Gọi endpoint tạo source và connection tới MongoDB
+      const response = await fetch(`${API_BASE_URL}/api/v1/app/airbyte/sources/facebook-pages`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({
+          name: page.page_name,
+          access_token: page.page_access_token,
+          page_id: page.page_id
+        }),
+      });
+      const result = await response.json();
+      if (result.code === 200 || result.code === 0) {
+        // Sau khi tạo xong, reload lại để cập nhật nút sang "Disconnect"
+        await fetchAllAccountsAndPages();
+      } else {
+        alert(result.message || 'Failed to connect to page');
+      }
+    } catch (err) {
+      alert('Error connecting to page');
+    } finally {
+      setProcessingId(null);
+    }
   };
-  
+
+  const handleDisconnectPage = async (page: FBPageInfo) => {
+    if (!page.airbyte_source_id) return;
+    
+    if (!window.confirm(`Bạn có chắc chắn muốn ngắt kết nối trang "${page.page_name}"? Dữ liệu sẽ không còn được đồng bộ.`)) return;
+
+    setProcessingId(page.page_id);
+    try {
+      const token = localStorage.getItem('authToken');
+      // Endpoint ngắt kết nối
+      const response = await fetch(`${API_BASE_URL}/api/v1/data/facebook-pages/delete_source`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({
+          source_id: page.airbyte_source_id
+        }),
+      });
+      const result = await response.json();
+      if (result.code === 200 || result.code === 0) {
+        // Reload lại để cập nhật nút về "Connect"
+        await fetchAllAccountsAndPages();
+      } else {
+        alert(result.message || 'Failed to disconnect page');
+      }
+    } catch (err) {
+      alert('Error disconnecting page');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center transition-opacity duration-300" aria-modal="true" role="dialog" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-5xl m-4 transform transition-transform duration-300 scale-100 flex flex-col h-[80vh]" onClick={e => e.stopPropagation()}>
-        <div className="flex-shrink-0 flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-gray-800">Configure Facebook Pages</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Close modal"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-center items-center p-4 transition-all duration-300" onClick={onClose}>
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in duration-300" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-100">
+               <svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="currentColor">
+                  <path d="M22.675 0h-21.35C.582 0 0 .582 0 1.292v21.416C0 23.418.582 24 1.325 24H12.82v-9.29h-3.128v-3.622h3.128V8.413c0-3.1 1.893-4.788 4.659-4.788 1.325 0 2.463.099 2.795.143v3.24l-1.918.001c-1.504 0-1.795.715-1.795 1.763v2.313h3.587l-.467 3.622h-3.12V24h5.698c.742 0 1.325-.582 1.325-1.292V1.292C24 .582 23.418 0 22.675 0z"/>
+               </svg>
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-gray-800 tracking-tight">Facebook Pages</h2>
+              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Connection Manager</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-all p-2 hover:bg-gray-100 rounded-full active:scale-90">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
         </div>
-        
-        {view === 'selection' ? renderSelectionView() : renderDetailsView()}
-        {error && view === 'selection' && <p className="mt-4 text-sm text-red-600">{error}</p>}
 
-        <div className="flex-shrink-0 mt-8 flex justify-end space-x-3">
-          {view === 'selection' ? (
-            <>
-              <button type="button" onClick={onClose} className="px-6 py-2.5 bg-brand-gray-200 border border-transparent text-brand-gray-600 font-semibold rounded-lg hover:bg-brand-gray-300 transition-colors text-sm">Cancel</button>
-              <button type="button" onClick={handleSave} disabled={selectedPages.size === 0 || isLoading || isSaving} className="px-6 py-2.5 bg-brand-purple border border-transparent text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center min-w-[200px]">
-                {isSaving ? (
-                  <><svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Saving...</>
-                ) : 'Save Configuration'}
-              </button>
-            </>
-          ) : (
-             <>
-               <button type="button" onClick={() => setView('selection')} className="px-6 py-2.5 bg-brand-gray-200 border border-transparent text-brand-gray-600 font-semibold rounded-lg hover:bg-brand-gray-300 transition-colors text-sm">Back to Selection</button>
-               <button type="button" onClick={onClose} className="px-6 py-2.5 bg-brand-purple border border-transparent text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors text-sm">Done</button>
-            </>
+        {/* Content */}
+        <div className="p-6 overflow-y-auto min-h-[400px] bg-brand-gray-100/50">
+          {status === 'loading' && (
+            <div className="flex flex-col items-center justify-center py-32">
+              <div className="relative">
+                <div className="w-16 h-16 border-4 border-brand-purple/20 border-t-brand-purple rounded-full animate-spin"></div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                   <div className="w-8 h-8 bg-brand-purple/10 rounded-full"></div>
+                </div>
+              </div>
+              <p className="text-gray-500 font-bold mt-6 animate-pulse text-lg">Đang đồng bộ dữ liệu...</p>
+            </div>
           )}
+
+          {status === 'empty' && (
+            <div className="text-center py-20 flex flex-col items-center">
+              <div className="bg-blue-50 p-10 rounded-[2.5rem] mb-8 shadow-inner border border-blue-100/50">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M22.675 0h-21.35C.582 0 0 .582 0 1.292v21.416C0 23.418.582 24 1.325 24H12.82v-9.29h-3.128v-3.622h3.128V8.413c0-3.1 1.893-4.788 4.659-4.788 1.325 0 2.463.099 2.795.143v3.24l-1.918.001c-1.504 0-1.795.715-1.795 1.763v2.313h3.587l-.467 3.622h-3.12V24h5.698c.742 0 1.325-.582 1.325-1.292V1.292C24 .582 23.418 0 22.675 0z"/></svg>
+              </div>
+              <p className="text-gray-800 mb-8 max-w-sm mx-auto text-xl font-extrabold leading-tight">Chưa có tài khoản Facebook nào được kết nối.</p>
+              <button 
+                onClick={handleVerify}
+                className="bg-brand-purple hover:bg-purple-700 text-white font-black py-4 px-12 rounded-2xl transition-all shadow-xl shadow-purple-200 active:scale-95 flex items-center space-x-3 group"
+              >
+                <span>Xác minh tài khoản của bạn</span>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 group-hover:translate-x-1 transition-transform" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+              </button>
+            </div>
+          )}
+
+          {status === 'error' && (
+            <div className="flex flex-col items-center py-16">
+              <div className="bg-red-50 p-10 rounded-3xl border border-red-100 text-red-700 text-center max-w-md shadow-lg shadow-red-100/50">
+                <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                   <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                </div>
+                <p className="mb-8 font-bold text-xl">{errorMessage}</p>
+                <button 
+                  onClick={fetchAllAccountsAndPages} 
+                  className="bg-red-600 hover:bg-red-700 text-white px-12 py-4 rounded-2xl font-black transition-all active:scale-95 shadow-lg shadow-red-200"
+                >
+                  Thử lại ngay
+                </button>
+              </div>
+            </div>
+          )}
+
+          {status === 'success' && (
+            <div className="space-y-12 pb-10">
+              {accounts.map(account => {
+                const pageList = Object.values(account.pages || {});
+                return (
+                  <div key={account.provider_id} className="space-y-6">
+                    {/* Account Section */}
+                    <div className="flex items-center justify-between border-b border-gray-200 pb-4">
+                      <div className="flex items-center space-x-4">
+                        <div className="relative">
+                          <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl flex items-center justify-center text-white shadow-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" /></svg>
+                          </div>
+                          <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 border-2 border-white rounded-full"></div>
+                        </div>
+                        <div>
+                          <h3 className="font-black text-gray-800 text-xl leading-none">{account.provider_name}</h3>
+                          <p className="text-xs text-brand-gray-500 font-bold mt-1.5">{account.provider_email}</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end">
+                        <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-100">{pageList.length} Connected Pages</span>
+                      </div>
+                    </div>
+
+                    {/* Pages Grid */}
+                    <div className="grid gap-4">
+                      {pageList.length > 0 ? (
+                        pageList.map(page => (
+                          <div 
+                            key={page.page_id} 
+                            className={`flex items-center justify-between p-5 bg-white rounded-[2rem] border transition-all duration-500 group relative overflow-hidden ${
+                              page.has_airbyte_source 
+                                ? 'border-green-400 bg-green-50/5 shadow-xl shadow-green-100/40' 
+                                : 'border-gray-100 hover:border-brand-purple hover:shadow-2xl hover:shadow-purple-100/50'
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1 pr-6 relative z-10">
+                              <div className="flex items-center space-x-3 mb-2">
+                                <p className="font-black text-gray-900 text-lg truncate leading-tight" title={page.page_name}>
+                                  {truncate(page.page_name, 35)}
+                                </p>
+                                {page.has_airbyte_source && (
+                                  <span className="bg-green-500 text-white text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest shadow-lg shadow-green-200/50 animate-in fade-in slide-in-from-right-2">Active</span>
+                                )}
+                              </div>
+                              <div className="flex items-center space-x-3">
+                                <span className="text-[9px] text-gray-400 font-black uppercase tracking-widest">Page ID</span>
+                                <p className="text-[10px] text-brand-gray-600 font-mono bg-gray-100/80 px-2.5 py-1 rounded-lg border border-gray-200/40">{page.page_id}</p>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center relative z-10">
+                              {page.has_airbyte_source ? (
+                                <button 
+                                  onClick={() => handleDisconnectPage(page)}
+                                  disabled={processingId === page.page_id}
+                                  className="group/btn relative bg-white hover:bg-red-600 text-red-500 hover:text-white text-xs font-black py-3.5 px-8 rounded-2xl transition-all duration-300 shrink-0 border-2 border-red-100 hover:border-red-600 active:scale-95 disabled:opacity-50 flex items-center shadow-sm"
+                                >
+                                  {processingId === page.page_id ? (
+                                    <svg className="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                  ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                  )}
+                                  Disconnect
+                                </button>
+                              ) : (
+                                <button 
+                                  onClick={() => handleConnectPage(page)}
+                                  disabled={processingId === page.page_id}
+                                  className="relative bg-brand-purple hover:bg-purple-700 text-white text-xs font-black py-4 px-8 rounded-2xl transition-all duration-300 shrink-0 shadow-xl shadow-purple-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center group/conn"
+                                >
+                                  {processingId === page.page_id ? (
+                                    <svg className="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                  ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 group-hover/conn:rotate-90 transition-transform" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
+                                  )}
+                                  Connect to page
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Decorative element for connected pages */}
+                            {page.has_airbyte_source && (
+                              <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/5 -mr-16 -mt-16 rounded-full blur-2xl"></div>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-12 bg-white/40 border-2 border-dashed border-gray-200 rounded-[2rem]">
+                          <p className="text-gray-400 text-sm font-bold italic">Không tìm thấy trang nào khả dụng cho tài khoản này.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-8 border-t border-gray-100 flex justify-end bg-gray-50/90 backdrop-blur-md">
+          <button 
+            onClick={onClose} 
+            className="px-12 py-3.5 text-brand-gray-500 font-black hover:text-gray-900 transition-all uppercase tracking-widest text-xs hover:bg-white rounded-2xl active:scale-95 shadow-sm"
+          >
+            Đóng bảng quản lý
+          </button>
         </div>
       </div>
     </div>

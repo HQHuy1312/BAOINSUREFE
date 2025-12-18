@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { CONNECTOR_CATEGORIES, TABS } from '../constants';
 import ConnectorSection from './ConnectorSection';
@@ -28,11 +27,9 @@ const MainContent: React.FC = () => {
 
   const getFrontendIdFromApiName = (apiName: string): string | null => {
     // Logic to map API names (e.g. tiktok_shop_connection_123) to Frontend IDs (e.g. tiktok-shop)
-    // In a real app, this might be better handled by a map or regex based on the `source_type` from the Source API.
     if (apiName.startsWith('tiktok_shop')) return 'tiktok-shop';
     if (apiName.startsWith('google_sheets')) return 'google-sheets';
     if (apiName.startsWith('facebook_pages')) return 'facebook-pages';
-    // Add more mappings as needed
     return null;
   };
 
@@ -43,7 +40,6 @@ const MainContent: React.FC = () => {
           case 'google_sheets': return 'google-sheets';
           case 'shopee': return 'shopee';
           case 'lazada': return 'lazada';
-          // Add other mappings
           default: return null;
       }
   }
@@ -82,9 +78,6 @@ const MainContent: React.FC = () => {
         connectors.forEach(conn => {
             const source = sources.find(s => s.source_id === conn.source_id);
             
-            // Determine frontend ID. 
-            // 1. Try to use source_type from Source API
-            // 2. Fallback to parsing connection name
             let frontendId: string | null = null;
             let friendlyName = conn.name;
             let sourceType = 'unknown';
@@ -132,7 +125,7 @@ const MainContent: React.FC = () => {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const authSuccess = urlParams.get('google_auth_success');
-    const facebookAuthSuccess = urlParams.get('facebook-pages_auth_success'); // Assumed query param
+    const facebookAuthSuccess = urlParams.get('facebook-pages_auth_success');
 
     if (authSuccess === 'true') {
       setIsSheetModalOpen(true);
@@ -143,6 +136,7 @@ const MainContent: React.FC = () => {
 
     if (facebookAuthSuccess === 'true') {
       fetchConnectorStatuses(); // Refresh status
+      setIsFacebookModalOpen(true); // Open modal after successful auth
       const newUrl = `${window.location.pathname}`;
       window.history.replaceState({}, document.title, newUrl);
     }
@@ -171,31 +165,6 @@ const MainContent: React.FC = () => {
     }
 
     return result.data.auth_url;
-  };
-
-  const getFacebookAuthUrl = async (): Promise<string> => {
-    const token = localStorage.getItem('authToken');
-    if (!token) {
-      throw new Error('Authentication token not found. Please log in again.');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/facebook-pages/url`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-    });
-
-    const result: ApiResponse<{ url: string }> = await response.json();
-
-    if (!response.ok || result.code !== 0) {
-      throw new Error(result.message || 'Failed to retrieve Facebook authentication URL.');
-    }
-
-    if (!result.data?.url) {
-        throw new Error('Authentication URL not found in the API response.');
-    }
-
-    return result.data.url;
   };
 
   const getTikTokShopAuthUrl = async (): Promise<string> => {
@@ -228,7 +197,6 @@ const MainContent: React.FC = () => {
       setLoadingConnectors(prev => ({ ...prev, [connectorId]: true }));
       try {
         const authUrl = await getTikTokShopAuthUrl();
-        // Open popup or redirect
         const width = 800;
         const height = 700;
         const left = window.screen.width / 2 - width / 2;
@@ -239,7 +207,6 @@ const MainContent: React.FC = () => {
           'TikTokShopAuth', 
           `width=${width},height=${height},top=${top},left=${left},scrollbars=yes,resizable=yes`
         );
-        // Polling or simple message listener could be added here to refresh on close
       } catch (error) {
         if (error instanceof Error) {
             alert(`Error: ${error.message}`);
@@ -252,66 +219,41 @@ const MainContent: React.FC = () => {
       return;
     }
 
-    if (connectorId.startsWith('google-')) {
-        if (connectorId === 'google-sheets') {
-             // For Google Sheets, we might still want to open the modal first if configured,
-             // but here we are in the "Add New" flow.
-             setLoadingConnectors(prev => ({ ...prev, [connectorId]: true }));
-             try {
-                const authUrl = await getGoogleAuthUrl();
-                window.location.href = authUrl;
-             } catch (error) {
-                if (error instanceof Error) {
-                    alert(`Error: ${error.message}`);
-                } else {
-                    alert('An unknown error occurred.');
-                }
-                setLoadingConnectors(prev => ({ ...prev, [connectorId]: false }));
-             }
-        }
-        return;
-    }
-
-    if (connectorId.startsWith('facebook-')) {
-        if (connectorId === 'facebook-pages') {
-            // If checking specifically for authentication vs configuration
-            setLoadingConnectors(prev => ({ ...prev, [connectorId]: true }));
-            try {
-                const authUrl = await getFacebookAuthUrl();
-                window.location.href = authUrl;
-            } catch (error) {
-                if (error instanceof Error) {
-                    alert(`Error: ${error.message}`);
-                } else {
-                    alert('An unknown error occurred.');
-                }
-                setLoadingConnectors(prev => ({ ...prev, [connectorId]: false }));
+    if (connectorId === 'google-sheets') {
+         setLoadingConnectors(prev => ({ ...prev, [connectorId]: true }));
+         try {
+            const authUrl = await getGoogleAuthUrl();
+            window.location.href = authUrl;
+         } catch (error) {
+            if (error instanceof Error) {
+                alert(`Error: ${error.message}`);
+            } else {
+                alert('An unknown error occurred.');
             }
-        }
-        return;
+            setLoadingConnectors(prev => ({ ...prev, [connectorId]: false }));
+         }
+         return;
     }
 
     alert(`Connection logic for "${connectorId}" is not implemented yet.`);
   }
 
   const handleConnect = async (connectorId: string) => {
+    // For Facebook Pages, we now open the modal by default as it handles the "Verify" vs "Configure" flow internally.
+    if (connectorId === 'facebook-pages') {
+        setIsFacebookModalOpen(true);
+        return;
+    }
+
     const existingConnections = connectedConnectors[connectorId] || [];
 
-    // Special handling for legacy/complex modals like Google Sheets or FB Pages configuration
+    // Special handling for legacy/complex modals like Google Sheets
     if (connectorId === 'google-sheets' && existingConnections.length > 0) {
         setIsSheetModalOpen(true);
         return;
     }
     
-    // For Facebook Pages, if connected, we usually open the specific page configuration modal
-    if (connectorId === 'facebook-pages' && existingConnections.length > 0) {
-        setIsFacebookModalOpen(true);
-        return;
-    }
-
     if (existingConnections.length > 0) {
-        // Show list of connected shops
-        // Find the friendly name for the title
         let category = CONNECTOR_CATEGORIES.find(c => c.connectors.some(conn => conn.id === connectorId));
         let connector = category?.connectors.find(c => c.id === connectorId);
         
@@ -322,7 +264,6 @@ const MainContent: React.FC = () => {
         });
         setIsDetailsModalOpen(true);
     } else {
-        // Not connected yet, start auth flow
         await executeAuthFlow(connectorId);
     }
   };
@@ -353,7 +294,6 @@ const MainContent: React.FC = () => {
       throw new Error('No sheet data returned from the Google Sheet.');
     }
     
-    console.log('Successfully fetched data from sheets:', result.data);
     return result.data;
   };
 
@@ -455,12 +395,6 @@ const MainContent: React.FC = () => {
         connections={selectedConnectorDetails?.connections || []}
         onAddNew={() => {
             if (selectedConnectorDetails) {
-                // Close modal and start auth flow
-                // We keep the modal open? Or close it?
-                // Usually good to close it or handle the popup logic while it stays open.
-                // Given logic, let's close modal then trigger auth.
-                // setIsDetailsModalOpen(false); 
-                // Actually, executeAuthFlow can run while modal is open (popup).
                 executeAuthFlow(selectedConnectorDetails.id);
             }
         }}
